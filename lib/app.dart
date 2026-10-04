@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
-import 'features/shell/dream_shell.dart';
+import 'features/auth/welcome_screen.dart';
 
 class DreamLogsApp extends StatelessWidget {
   const DreamLogsApp({super.key});
@@ -11,7 +11,7 @@ class DreamLogsApp extends StatelessWidget {
       title: 'Dream Logs',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: const DreamShell(),
+      home: const WelcomeScreen(),
     );
   }
 }
