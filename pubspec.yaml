@@ -1,7 +1,7 @@
 name: dream_logs
 description: Turn dreams into visual stories.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -10,6 +10,12 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  firebase_core: ^4.2.0
+  firebase_auth: ^6.1.1
+  cloud_firestore: ^6.0.3
+  firebase_storage: ^13.0.3
+  firebase_messaging: ^16.0.3
+  image_picker: ^1.2.0
 
 dev_dependencies:
   flutter_test:
