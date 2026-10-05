@@ -5,6 +5,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
+class CastUser {
+  const CastUser({required this.uid, required this.username, required this.displayName, this.photoUrl});
+  final String uid;
+  final String username;
+  final String displayName;
+  final String? photoUrl;
+}
+
 class DreamCastService {
   DreamCastService()
       : _auth = FirebaseAuth.instance,
@@ -22,8 +30,32 @@ class DreamCastService {
   Stream<QuerySnapshot<Map<String, dynamic>>> watchPersonas() =>
       _firestore.collection('users').doc(uid).collection('personas').orderBy('createdAt').snapshots();
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchIncomingInvites() =>
+      _firestore.collection('castInvites').where('recipientUid', isEqualTo: uid).snapshots();
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchSentInvites() =>
+      _firestore.collection('castInvites').where('senderUid', isEqualTo: uid).snapshots();
+
   Future<XFile?> pickPhoto(ImageSource source) =>
       _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+
+  Future<CastUser?> findUser(String username) async {
+    final normalized = username.trim().toLowerCase().replaceFirst('@', '');
+    if (normalized.length < 3) return null;
+    final usernameDoc = await _firestore.collection('usernames').doc(normalized).get();
+    if (!usernameDoc.exists) return null;
+    final foundUid = usernameDoc.data()!['uid'] as String;
+    if (foundUid == uid) return null;
+    final userDoc = await _firestore.collection('users').doc(foundUid).get();
+    if (!userDoc.exists) return null;
+    final data = userDoc.data()!;
+    return CastUser(
+      uid: foundUid,
+      username: data['username'] as String? ?? normalized,
+      displayName: data['displayName'] as String? ?? normalized,
+      photoUrl: data['photoUrl'] as String?,
+    );
+  }
 
   Future<void> createPersona({required String name, required XFile photo}) async {
     final ref = _firestore.collection('users').doc(uid).collection('personas').doc();
@@ -34,14 +66,9 @@ class DreamCastService {
     await storageRef.putFile(File(photo.path));
     final url = await storageRef.getDownloadURL();
     await ref.set({
-      'ownerUid': uid,
-      'name': name.trim(),
-      'photoUrls': [url],
-      'isSelf': false,
-      'canBeUsedByFriends': false,
-      'linkedUserUid': null,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'ownerUid': uid, 'name': name.trim(), 'photoUrls': [url], 'isSelf': false,
+      'canBeUsedByFriends': false, 'linkedUserUid': null,
+      'createdAt': FieldValue.serverTimestamp(), 'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -53,23 +80,39 @@ class DreamCastService {
     await storageRef.putFile(File(photo.path));
     final url = await storageRef.getDownloadURL();
     await _firestore.collection('users').doc(uid).collection('personas').doc(personaId).update({
-      'photoUrls': FieldValue.arrayUnion([url]),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'photoUrls': FieldValue.arrayUnion([url]), 'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
-  Future<void> sendInvite(String username) async {
-    final normalized = username.trim().toLowerCase().replaceFirst('@', '');
-    if (normalized.isEmpty) throw Exception('Enter a username.');
-    final usernameDoc = await _firestore.collection('usernames').doc(normalized).get();
-    if (!usernameDoc.exists) throw Exception('No Dream Logs user found with @' + normalized + '.');
-    final recipientUid = usernameDoc.data()!['uid'] as String;
-    if (recipientUid == uid) throw Exception('You cannot invite yourself.');
-    await _firestore.collection('castInvites').doc(uid + '_' + recipientUid).set({
+  Future<void> sendInvite(CastUser recipient) async {
+    final senderDoc = await _firestore.collection('users').doc(uid).get();
+    final sender = senderDoc.data() ?? {};
+    await _firestore.collection('castInvites').doc(uid + '_' + recipient.uid).set({
       'senderUid': uid,
-      'recipientUid': recipientUid,
+      'senderUsername': sender['username'] ?? '',
+      'senderDisplayName': sender['displayName'] ?? '',
+      'senderPhotoUrl': sender['photoUrl'],
+      'recipientUid': recipient.uid,
+      'recipientUsername': recipient.username,
+      'recipientDisplayName': recipient.displayName,
+      'recipientPhotoUrl': recipient.photoUrl,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
+
+  Future<void> respondToInvite(DocumentReference<Map<String, dynamic>> ref, bool accept) async {
+    if (!accept) {
+      await ref.update({'status': 'declined', 'respondedAt': FieldValue.serverTimestamp()});
+      return;
+    }
+    await ref.update({
+      'status': 'accepted',
+      'likenessPermission': false,
+      'respondedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> setLikenessPermission(DocumentReference<Map<String, dynamic>> ref, bool allowed) =>
+      ref.update({'likenessPermission': allowed, 'permissionUpdatedAt': FieldValue.serverTimestamp()});
 }
