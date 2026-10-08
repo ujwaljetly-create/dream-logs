@@ -18,16 +18,15 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU not detected. Check PyTorch CUDA installation.")
 
-    print("Loading Stable Diffusion with float32 VAE for numerical stability...")
+    print("Loading Stable Diffusion with float32 precision and CPU offloading...")
     pipeline = StableDiffusionPipeline.from_pretrained(
         args.model,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         safety_checker=None,
         requires_safety_checker=False,
     )
-    # VAE decoding in fp16 can produce NaNs / black images on some GPUs.
-    pipeline.vae.to(dtype=torch.float16)
-    # Keep VAE weights and incoming latents at the same precision.
+    # Full precision avoids fp16 overflow/NaNs on GTX 1650 Ti.
+    # CPU offload reduces GPU memory use, at the cost of speed.
     pipeline.enable_attention_slicing()
     pipeline.enable_vae_slicing()
     pipeline.enable_model_cpu_offload()
@@ -46,7 +45,7 @@ def main():
     if pixels.max() == 0 or pixels.std() < 1:
         raise RuntimeError(
             "Generated image is blank. The model may have produced NaNs or "
-            "run out of usable GPU memory. Try the --full-precision option."
+            "run out of usable GPU memory. Try fewer steps or check model compatibility."
         )
 
     destination = Path(args.output)
