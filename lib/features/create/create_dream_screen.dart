@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/dream_cast_service.dart';
 import '../../widgets/dream_gradient.dart';
 
 class CreateDreamScreen extends StatefulWidget {
@@ -15,6 +16,31 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
   bool movie = false;
   String style = 'Cinematic';
   final selected = <String>{};
+  final description = TextEditingController();
+  bool saving = false;
+  final castService = DreamCastService();
+
+  @override
+  void dispose() { description.dispose(); super.dispose(); }
+
+  Future<void> _submit() async {
+    final prompt = description.text.trim();
+    if (prompt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Describe your dream first.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await FirebaseFirestore.instance.collection('dreams').add({
+        'ownerUid': uid, 'description': prompt, 'type': movie ? 'movie' : 'story',
+        'style': style, 'castIds': selected.toList(), 'status': 'queued',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dream request saved. Generation worker is not connected yet.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save dream: $e')));
+    } finally { if (mounted) setState(() => saving = false); }
+  }
 
   String get uid => FirebaseAuth.instance.currentUser!.uid;
 
@@ -26,7 +52,7 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
       const Text('Describe everything you remember. People, places, emotions, sounds — even the strange parts.',
         style: TextStyle(color: DreamColors.muted, height: 1.45)),
       const SizedBox(height: 20),
-      const TextField(minLines: 6, maxLines: 10, decoration: InputDecoration(hintText: 'Last night I dreamed about...')),
+      TextField(controller: description, minLines: 6, maxLines: 10, decoration: InputDecoration(hintText: 'Last night I dreamed about...')),
       const SizedBox(height: 22),
       const Text('Who was in your dream?', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Arial')),
       const SizedBox(height: 6),
@@ -34,22 +60,54 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
         style: TextStyle(color: DreamColors.muted, fontSize: 12)),
       const SizedBox(height: 12),
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('castInvites').where(Filter.or(
-          Filter('senderUid', isEqualTo: uid), Filter('recipientUid', isEqualTo: uid))).snapshots(),
-        builder: (context, snapshot) {
-          final accepted = snapshot.data?.docs.where((d) => d.data()['status'] == 'accepted').toList() ?? [];
-          return Wrap(spacing: 12, runSpacing: 12, children: [
-            _CastChoice(label: 'Me', photoUrl: null, selected: selected.contains(uid), onTap: () => _toggle(uid)),
-            ...accepted.map((doc) {
-              final d = doc.data();
-              final mine = d['senderUid'] == uid;
-              final id = (mine ? d['recipientUid'] : d['senderUid']) as String;
-              final name = (mine ? d['recipientDisplayName'] : d['senderDisplayName']) as String? ?? 'Friend';
-              final photo = (mine ? d['recipientPhotoUrl'] : d['senderPhotoUrl']) as String?;
-              return _CastChoice(label: name, photoUrl: photo, selected: selected.contains(id), onTap: () => _toggle(id));
-            }),
-          ]);
-        },
+        stream: castService.watchSentInvites(),
+        builder: (context, sent) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: castService.watchIncomingInvites(),
+          builder: (context, incoming) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: castService.watchPersonas(),
+            builder: (context, personas) {
+              if (sent.hasError || incoming.hasError || personas.hasError) {
+                return const Text('Could not load Dream Cast.');
+              }
+              if (!sent.hasData || !incoming.hasData || !personas.hasData) {
+                return const LinearProgressIndicator();
+              }
+              final friendIds = <String>{};
+              for (final doc in [...sent.data!.docs, ...incoming.data!.docs]) {
+                final d = doc.data();
+                if (d['status'] != 'accepted') continue;
+                final other = (d['senderUid'] == uid ? d['recipientUid'] : d['senderUid']) as String?;
+                if (other != null && other != uid) friendIds.add(other);
+              }
+              return Wrap(spacing: 12, runSpacing: 12, children: [
+                _CastChoice(label: 'Me', photoUrl: null, selected: selected.contains(uid), onTap: () => _toggle(uid)),
+                ...friendIds.map((id) => FutureBuilder<CastUser?>(
+                  future: castService.getUserByUid(id),
+                  builder: (context, snapshot) {
+                    final user = snapshot.data;
+                    return _CastChoice(
+                      label: user?.displayName ?? (snapshot.connectionState == ConnectionState.waiting ? 'Loading...' : 'Friend'),
+                      photoUrl: user?.photoUrl,
+                      selected: selected.contains(id),
+                      onTap: () => _toggle(id),
+                    );
+                  },
+                )),
+                ...personas.data!.docs.map((doc) {
+                  final d = doc.data();
+                  final urls = List<String>.from(d['photoUrls'] ?? const []);
+                  final id = 'persona:${doc.id}';
+                  return _CastChoice(
+                    label: d['name'] as String? ?? 'Person',
+                    photoUrl: urls.isEmpty ? null : urls.first,
+                    selected: selected.contains(id),
+                    onTap: () => _toggle(id),
+                  );
+                }),
+              ]);
+            },
+          ),
+        ),
       ),
       const SizedBox(height: 24),
       const Text('Create as', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Arial')),
@@ -68,8 +126,7 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
       const SizedBox(height: 30),
       FilledButton.icon(
         style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 18), backgroundColor: DreamColors.violet),
-        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Dream cast ready: ' + selected.length.toString() + ' selected. AI generation is next.'))),
+        onPressed: saving ? null : _submit,
         icon: const Icon(Icons.auto_awesome), label: const Text('Recreate My Dream')),
     ],
   )));
