@@ -57,6 +57,20 @@ class DreamCastService {
     );
   }
 
+  Future<CastUser?> getUserByUid(String userId) async {
+    final doc = await _firestore.collection('users').doc(userId).get();
+    if (!doc.exists) return null;
+    final d = doc.data()!;
+    final username = d['username'] as String? ?? '';
+    return CastUser(
+      uid: userId,
+      username: username,
+      displayName: (d['displayName'] as String? ?? '').trim().isNotEmpty
+          ? d['displayName'] as String : username,
+      photoUrl: d['photoUrl'] as String?,
+    );
+  }
+
   Future<void> createPersona({required String name, required XFile photo}) async {
     final ref = _firestore.collection('users').doc(uid).collection('personas').doc();
     final ext = photo.name.contains('.') ? photo.name.split('.').last : 'jpg';
@@ -87,7 +101,13 @@ class DreamCastService {
   Future<void> sendInvite(CastUser recipient) async {
     final senderDoc = await _firestore.collection('users').doc(uid).get();
     final sender = senderDoc.data() ?? {};
-    await _firestore.collection('castInvites').doc(uid + '_' + recipient.uid).set({
+    final inviteRef = _firestore.collection('castInvites').doc(uid + '_' + recipient.uid);
+    final existing = await inviteRef.get();
+    if (existing.exists && (existing.data()?['status'] == 'pending' ||
+        existing.data()?['status'] == 'accepted')) {
+      throw StateError('This invitation is already pending or accepted.');
+    }
+    await inviteRef.set({
       'senderUid': uid,
       'senderUsername': sender['username'] ?? '',
       'senderDisplayName': sender['displayName'] ?? '',
