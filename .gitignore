@@ -11,3 +11,10 @@ android/.gradle/
 ios/Pods/
 ios/.symlinks/
 macos/Pods/
+
+# Local AI environment, outputs and Firebase admin credentials
+.venv/
+ai_backend/outputs/
+*service-account*.json
+*firebase-admin*.json
+firebase-secrets/
