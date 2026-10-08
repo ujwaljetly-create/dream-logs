@@ -45,8 +45,26 @@ service cloud.firestore {
         && request.resource.data.description.size() <= 10000
         && request.resource.data.castIds is list
         && request.resource.data.castIds.size() <= 30;
-      allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if false;
+      allow read: if signedIn() && (
+        resource.data.ownerUid == request.auth.uid ||
+        (resource.data.status == 'completed' && (
+          resource.data.get('visibility', 'private') == 'public' ||
+          (resource.data.get('visibility', 'private') == 'friends' &&
+           request.auth.uid in resource.data.get('sharedWith', []))
+        ))
+      );
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'description', 'visibility', 'sharedWith'])
+        && request.resource.data.get('title', '') is string
+        && request.resource.data.get('title', '').size() <= 100
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 10000
+        && request.resource.data.get('visibility', 'private') in ['private', 'friends', 'public']
+        && request.resource.data.get('sharedWith', []) is list
+        && request.resource.data.get('sharedWith', []).size() <= 100;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
     match /{document=**} { allow read, write: if false; }
