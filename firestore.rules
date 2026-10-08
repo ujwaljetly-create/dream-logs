@@ -35,6 +35,20 @@ service cloud.firestore {
         && (resource.data.senderUid == request.auth.uid || resource.data.recipientUid == request.auth.uid);
     }
 
+    match /dreams/{dreamId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'queued'
+        && request.resource.data.type in ['story', 'movie']
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 10000
+        && request.resource.data.castIds is list
+        && request.resource.data.castIds.size() <= 30;
+      allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /{document=**} { allow read, write: if false; }
   }
 }
