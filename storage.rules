@@ -3,7 +3,14 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /dreams/{userId}/{dreamId}/{fileName} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && (request.auth.uid == userId || (
+        firestore.exists(/databases/(default)/documents/dreams/$(dreamId)) &&
+        firestore.get(/databases/(default)/documents/dreams/$(dreamId)).data.status == 'completed' && (
+          firestore.get(/databases/(default)/documents/dreams/$(dreamId)).data.get('visibility', 'private') == 'public' ||
+          (firestore.get(/databases/(default)/documents/dreams/$(dreamId)).data.get('visibility', 'private') == 'friends' &&
+            request.auth.uid in firestore.get(/databases/(default)/documents/dreams/$(dreamId)).data.get('sharedWith', []))
+        )
+      ));
       allow write: if false;
     }
     match /users/{userId}/profile/{fileName} {
