@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/profile_service.dart';
+import '../dreams/dream_library_screen.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/dream_gradient.dart';
 
@@ -56,6 +57,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Center(child: OutlinedButton.icon(onPressed: () => _edit(data), icon: const Icon(Icons.edit_outlined), label: const Text('Edit profile'))),
           const SizedBox(height: 18),
           Text(data['bio'] as String? ?? '', textAlign: TextAlign.center),
+          const SizedBox(height: 20),
+          FilledButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const DreamLibraryScreen())),
+            icon: const Icon(Icons.auto_stories_outlined), label: const Text('My Dream Library')),
           const SizedBox(height: 28),
           Row(children: [
             Expanded(child: Text('My Dream Persona', style: Theme.of(context).textTheme.titleLarge)),
