@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -31,12 +32,14 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
     }
     setState(() => saving = true);
     try {
-      await FirebaseFirestore.instance.collection('dreams').add({
+      final job = await FirebaseFirestore.instance.collection('dreams').add({
         'ownerUid': uid, 'description': prompt, 'type': movie ? 'movie' : 'story',
         'style': style, 'castIds': selected.toList(), 'status': 'queued',
         'createdAt': FieldValue.serverTimestamp(),
       });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dream request saved. Generation worker is not connected yet.')));
+      if (mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => _DreamJobScreen(jobId: job.id)));
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save dream: $e')));
     } finally { if (mounted) setState(() => saving = false); }
@@ -151,5 +154,61 @@ class _CastChoice extends StatelessWidget {
       const SizedBox(height: 6),
       Text(label, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontFamily: 'Arial')),
     ])),
+  );
+}
+
+class _DreamJobScreen extends StatelessWidget {
+  const _DreamJobScreen({required this.jobId});
+  final String jobId;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Your Dream')),
+    body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('dreams').doc(jobId).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text('Could not load dream: ${snapshot.error}'));
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final data = snapshot.data!.data();
+        if (data == null) return const Center(child: Text('Dream not found'));
+        final status = data['status'] as String? ?? 'queued';
+        if (status == 'failed') {
+          return Center(child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('Generation failed: ${data['error'] ?? 'Unknown error'}'),
+          ));
+        }
+        if (status != 'completed') {
+          return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
+            Text(status == 'processing' ? 'Creating your dream image...' : 'Waiting for your AI worker...'),
+            const SizedBox(height: 10),
+            const Text('Keep your PC worker running.', style: TextStyle(color: DreamColors.muted)),
+          ]));
+        }
+        final scenes = (data['scenes'] as List<dynamic>? ?? const []);
+        return ListView(padding: const EdgeInsets.all(20), children: [
+          const Text('Dream Story', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          ...scenes.map((scene) {
+            final item = Map<String, dynamic>.from(scene as Map);
+            final path = item['storagePath'] as String?;
+            if (path == null) return const SizedBox.shrink();
+            return FutureBuilder<String>(
+              future: FirebaseStorage.instance.ref(path).getDownloadURL(),
+              builder: (context, url) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (url.hasData) Image.network(url.data!, fit: BoxFit.cover)
+                else if (url.hasError) Text('Could not load image: ${url.error}')
+                else const SizedBox(height: 220, child: Center(child: CircularProgressIndicator())),
+                const SizedBox(height: 12),
+                Text(item['caption'] as String? ?? ''),
+                const SizedBox(height: 24),
+              ]),
+            );
+          }),
+        ]);
+      },
+    ),
   );
 }
