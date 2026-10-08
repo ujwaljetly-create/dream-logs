@@ -85,7 +85,11 @@ class _DreamCastScreenState extends State<DreamCastScreen> {
         Expanded(child: OutlinedButton.icon(onPressed: _invite, icon: const Icon(Icons.send_outlined), label: const Text('Send invite'))),
       ]),
       const SizedBox(height: 24),
-      const _SectionTitle('Invitations'),
+      const _SectionTitle('Friends'),
+      const SizedBox(height: 10),
+      _Friends(service: _service),
+      const SizedBox(height: 24),
+      const _SectionTitle('Pending invitations'),
       const SizedBox(height: 10),
       _Invitations(service: _service),
       const SizedBox(height: 24),
@@ -183,7 +187,7 @@ class _Invitations extends StatelessWidget {
         return Column(children: docs.map((doc) {
           final d = doc.data();
           return _InviteCard(
-            name: d['senderDisplayName'] as String? ?? 'Dream Logs user',
+            name: _inviteName(d, 'sender'),
             username: d['senderUsername'] as String? ?? '',
             photoUrl: d['senderPhotoUrl'] as String?,
             label: 'wants to join your Dream Cast',
@@ -197,7 +201,7 @@ class _Invitations extends StatelessWidget {
     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: service.watchSentInvites(),
       builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? [];
+        final docs = snapshot.data?.docs.where((d) => d.data()['status'] == 'pending').toList() ?? [];
         if (docs.isEmpty) return const Padding(
           padding: EdgeInsets.symmetric(vertical: 10),
           child: Text('No invitations yet.', style: TextStyle(color: DreamColors.muted)));
@@ -205,7 +209,7 @@ class _Invitations extends StatelessWidget {
           final d = doc.data();
           final status = d['status'] as String? ?? 'pending';
           return _InviteCard(
-            name: d['recipientDisplayName'] as String? ?? 'Dream Logs user',
+            name: _inviteName(d, 'recipient'),
             username: d['recipientUsername'] as String? ?? '',
             photoUrl: d['recipientPhotoUrl'] as String?,
             label: status == 'pending' ? 'Invite pending' : status == 'accepted' ? 'Invite accepted' : 'Invite declined',
@@ -280,5 +284,54 @@ class _PersonaCard extends StatelessWidget {
       ])),
       IconButton(onPressed: onAddPhoto, tooltip: 'Add reference photo', icon: const Icon(Icons.add_a_photo_outlined)),
     ]),
+  );
+}
+
+String _inviteName(Map<String, dynamic> data, String side) {
+  final display = (data['${side}DisplayName'] as String? ?? '').trim();
+  final username = (data['${side}Username'] as String? ?? '').trim();
+  return display.isNotEmpty ? display : (username.isNotEmpty ? username : 'Dream Logs user');
+}
+
+class _Friends extends StatelessWidget {
+  const _Friends({required this.service});
+  final DreamCastService service;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: service.watchSentInvites(),
+    builder: (context, sent) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: service.watchIncomingInvites(),
+      builder: (context, incoming) {
+        if (sent.hasError || incoming.hasError) return const Text('Could not load friends.');
+        if (!sent.hasData || !incoming.hasData) return const LinearProgressIndicator();
+        final byUid = <String, Map<String, dynamic>>{};
+        for (final doc in [...sent.data!.docs, ...incoming.data!.docs]) {
+          final d = doc.data();
+          if (d['status'] != 'accepted') continue;
+          final mine = d['senderUid'] == service.uid;
+          final friendUid = (mine ? d['recipientUid'] : d['senderUid']) as String?;
+          if (friendUid != null) byUid[friendUid] = d;
+        }
+        if (byUid.isEmpty) return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text('No friends yet. Accepted invitations will appear here.',
+            style: TextStyle(color: DreamColors.muted)));
+        return Column(children: byUid.entries.map((entry) {
+          final d = entry.value;
+          final side = d['senderUid'] == service.uid ? 'recipient' : 'sender';
+          return FutureBuilder<CastUser?>(
+            future: service.getUserByUid(entry.key),
+            builder: (context, user) => _InviteCard(
+              name: user.data?.displayName ?? _inviteName(d, side),
+              username: user.data?.username ?? (d['${side}Username'] as String? ?? ''),
+              photoUrl: user.data?.photoUrl ?? d['${side}PhotoUrl'] as String?,
+              label: 'Friend · available in Dream Cast',
+              actions: const [],
+            ),
+          );
+        }).toList());
+      },
+    ),
   );
 }
