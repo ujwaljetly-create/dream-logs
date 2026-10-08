@@ -26,9 +26,8 @@ def main():
         requires_safety_checker=False,
     )
     # VAE decoding in fp16 can produce NaNs / black images on some GPUs.
-    pipeline.vae.to(dtype=torch.float32)
-    # Diffusers uses this flag to upcast VAE latents before decoding.
-    pipeline.vae.config.force_upcast = True
+    pipeline.vae.to(dtype=torch.float16)
+    # Keep VAE weights and incoming latents at the same precision.
     pipeline.enable_attention_slicing()
     pipeline.enable_vae_slicing()
     pipeline.enable_model_cpu_offload()
