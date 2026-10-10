@@ -47,6 +47,7 @@ class ProfileService {
     final url = await ref.getDownloadURL();
     await doc.set({
       'url': url,
+      'storagePath': ref.fullPath,
       'availableForDreams': true,
       'createdAt': FieldValue.serverTimestamp(),
     });
