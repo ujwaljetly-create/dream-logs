@@ -25,6 +25,10 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
   void dispose() { description.dispose(); super.dispose(); }
 
   Future<void> _submit() async {
+    if (movie) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dream Movie is coming soon. Please choose Dream Story.')));
+      return;
+    }
     final prompt = description.text.trim();
     if (prompt.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Describe your dream first.')));
@@ -184,7 +188,7 @@ class _DreamJobScreen extends StatelessWidget {
             const SizedBox(height: 20),
             Text(status == 'processing' ? 'Creating your dream image...' : 'Waiting for your AI worker...'),
             const SizedBox(height: 10),
-            const Text('Keep your PC worker running.', style: TextStyle(color: DreamColors.muted)),
+            const Text('Your dream is being generated securely in the cloud.', style: TextStyle(color: DreamColors.muted)),
           ]));
         }
         final scenes = (data['scenes'] as List<dynamic>? ?? const []);
