@@ -16,11 +16,11 @@ class DreamLibraryScreen extends StatelessWidget {
       final path = (scenes.first as Map)['storagePath'] as String;
       final bytes = await FirebaseStorage.instance.ref(path).getData(15 * 1024 * 1024);
       if (bytes == null) throw StateError('Could not download image');
-      await SharePlus.instance.share(ShareParams(
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'image/png', name: 'dream.png')],
         text: data['description'] as String? ?? 'My Dream',
-        files: [XFile.fromData(bytes, mimeType: 'image/png', name: 'dream.png')],
         fileNameOverrides: ['dream.png'],
-      ));
+      );
     } catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not export: $e')));
     }
