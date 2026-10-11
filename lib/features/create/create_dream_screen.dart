@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../core/services/profile_service.dart';
+import '../dreams/dream_library_screen.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/dream_cast_service.dart';
@@ -19,6 +22,8 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
   final selected = <String>{};
   final description = TextEditingController();
   bool saving = false;
+  final photoIds = <String>{};
+  final profileService = ProfileService();
   final castService = DreamCastService();
 
   @override
@@ -38,7 +43,7 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
     try {
       final job = await FirebaseFirestore.instance.collection('dreams').add({
         'ownerUid': uid, 'description': prompt, 'type': movie ? 'movie' : 'story',
-        'style': style, 'castIds': selected.toList(), 'status': 'queued',
+        'style': style, 'castIds': selected.toList(), 'photoIds': photoIds.toList(), 'status': 'queued',
         'createdAt': FieldValue.serverTimestamp(),
       });
       if (mounted) {
@@ -117,6 +122,47 @@ class _CreateDreamScreenState extends State<CreateDreamScreen> {
         ),
       ),
       const SizedBox(height: 24),
+      Row(children: [
+        const Expanded(child: Text('My reference photos', style: TextStyle(fontWeight: FontWeight.bold))),
+        TextButton.icon(onPressed: () async {
+          final option = await showModalBottomSheet<String>(context: context, builder: (ctx) =>
+            SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(title: const Text('Take photo'), leading: const Icon(Icons.camera_alt),
+                onTap: () => Navigator.pop(ctx, 'camera')),
+              ListTile(title: const Text('Choose from phone gallery'), leading: const Icon(Icons.photo_library),
+                onTap: () => Navigator.pop(ctx, 'gallery')),
+              ListTile(title: const Text('Use profile picture'), leading: const Icon(Icons.account_circle),
+                onTap: () => Navigator.pop(ctx, 'profile')),
+            ])));
+          if (option == null) return;
+          try {
+            if (option == 'profile') { await profileService.useProfilePictureForDreams(); }
+            else { await profileService.addDreamReferencePhoto(source: option == 'camera' ? ImageSource.camera : ImageSource.gallery); }
+          } catch (e) {
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Photo error: $e')));
+          }
+        }, icon: const Icon(Icons.add_a_photo), label: const Text('Add')),
+      ]),
+      const Text('Select the photos to use in this dream. Only photos enabled in your album appear.',
+        style: TextStyle(color: DreamColors.muted, fontSize: 12)),
+      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: profileService.watchDreamPhotos(),
+        builder: (context, snap) {
+          if (!snap.hasData) return const LinearProgressIndicator();
+          final photos = snap.data!.docs.where((d) => d.data()['availableForDreams'] == true).toList();
+          if (photos.isEmpty) return const Padding(padding: EdgeInsets.all(12), child: Text('No approved photos. Add one above.'));
+          return SizedBox(height: 105, child: ListView(scrollDirection: Axis.horizontal, children: photos.map((doc) {
+            final checked = photoIds.contains(doc.id);
+            return GestureDetector(onTap: () => setState(() => checked ? photoIds.remove(doc.id) : photoIds.add(doc.id)),
+              child: Padding(padding: const EdgeInsets.all(6), child: Stack(children: [
+                Image.network(doc.data()['url'] as String, width: 86, height: 86, fit: BoxFit.cover),
+                Positioned(right: 0, top: 0, child: Icon(checked ? Icons.check_circle : Icons.circle_outlined,
+                  color: checked ? Colors.greenAccent : Colors.white)),
+              ])));
+          }).toList()));
+        },
+      ),
+      const SizedBox(height: 24),
       const Text('Create as', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Arial')),
       const SizedBox(height: 10),
       SegmentedButton<bool>(
@@ -186,7 +232,7 @@ class _DreamJobScreen extends StatelessWidget {
           return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 20),
-            Text(status == 'processing' ? 'Creating your dream image...' : 'Waiting for your AI worker...'),
+            Text(status == 'processing' ? 'Creating your dream image...' : 'Waiting for cloud generation...'),
             const SizedBox(height: 10),
             const Text('Your dream is being generated securely in the cloud.', style: TextStyle(color: DreamColors.muted)),
           ]));
@@ -194,6 +240,10 @@ class _DreamJobScreen extends StatelessWidget {
         final scenes = (data['scenes'] as List<dynamic>? ?? const []);
         return ListView(padding: const EdgeInsets.all(20), children: [
           const Text('Dream Story', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          FilledButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DreamLibraryScreen(initialDreamId: jobId))), icon: const Icon(Icons.tune), label: const Text('Save, share, edit or regenerate')),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DreamLibraryScreen())), icon: const Icon(Icons.collections_bookmark), label: const Text('My Dreams')),
           const SizedBox(height: 16),
           ...scenes.map((scene) {
             final item = Map<String, dynamic>.from(scene as Map);
