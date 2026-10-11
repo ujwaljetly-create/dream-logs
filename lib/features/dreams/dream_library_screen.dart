@@ -2,10 +2,64 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 class DreamLibraryScreen extends StatelessWidget {
-  const DreamLibraryScreen({super.key});
+  const DreamLibraryScreen({super.key, this.initialDreamId});
+  final String? initialDreamId;
   String get uid => FirebaseAuth.instance.currentUser!.uid;
+
+  Future<void> _export(BuildContext context, Map<String, dynamic> data) async {
+    try {
+      final scenes = data['scenes'] as List<dynamic>? ?? [];
+      if (scenes.isEmpty) throw StateError('No generated image yet');
+      final path = (scenes.first as Map)['storagePath'] as String;
+      final bytes = await FirebaseStorage.instance.ref(path).getData(15 * 1024 * 1024);
+      if (bytes == null) throw StateError('Could not download image');
+      await SharePlus.instance.share(ShareParams(
+        text: data['description'] as String? ?? 'My Dream',
+        files: [XFile.fromData(bytes, mimeType: 'image/png', name: 'dream.png')],
+        fileNameOverrides: ['dream.png'],
+      ));
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not export: $e')));
+    }
+  }
+
+  Future<void> _regenerate(BuildContext context, Map<String, dynamic> data) async {
+    final controller = TextEditingController(text: data['description'] as String? ?? '');
+    var style = data['style'] as String? ?? 'Cinematic';
+    final submit = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(
+      builder: (ctx, update) => AlertDialog(
+        title: const Text('Regenerate dream'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: controller, minLines: 3, maxLines: 7, decoration: const InputDecoration(labelText: 'Revise dream details')),
+          const SizedBox(height: 12),
+          DropdownButton<String>(value: style, isExpanded: true,
+            items: ['Cinematic', 'Fantasy', 'Realistic', 'Animated'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) => update(() => style = v!)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Generate new image')),
+        ],
+      )));
+    final prompt = controller.text.trim();
+    controller.dispose();
+    if (submit != true || prompt.isEmpty) return;
+    try {
+      await FirebaseFirestore.instance.collection('dreams').add({
+        'ownerUid': uid, 'description': prompt, 'type': 'story',
+        'style': style, 'castIds': List<String>.from(data['castIds'] ?? const []),
+        'photoIds': List<String>.from(data['photoIds'] ?? const []),
+        'status': 'queued', 'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('New version queued. It will appear in My Dreams.')));
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not regenerate: $e')));
+    }
+  }
 
   Future<void> _edit(BuildContext context, DocumentReference<Map<String, dynamic>> ref,
       Map<String, dynamic> data) async {
@@ -81,7 +135,7 @@ class DreamLibraryScreen extends StatelessWidget {
       Map<String, dynamic> data) async {
     final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('Delete dream?'),
-      content: const Text('This permanently removes the dream and its generated images.'),
+      content: const Text('This removes the dream from your library. Stored image cleanup may take longer.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
@@ -110,6 +164,9 @@ class DreamLibraryScreen extends StatelessWidget {
             return bt.compareTo(at);
           });
         if (docs.isEmpty) return const Center(child: Text('Your generated dreams will appear here.'));
+        if (initialDreamId != null) {
+          docs.sort((a, b) => a.id == initialDreamId ? -1 : b.id == initialDreamId ? 1 : 0);
+        }
         return ListView.builder(
           padding: const EdgeInsets.all(16), itemCount: docs.length,
           itemBuilder: (context, index) {
@@ -130,13 +187,15 @@ class DreamLibraryScreen extends StatelessWidget {
                   if (path == null) return const SizedBox.shrink();
                   return FutureBuilder<String>(
                     future: FirebaseStorage.instance.ref(path).getDownloadURL(),
-                    builder: (context, image) => image.hasData
+                    builder: (context, image) => image.hasError ? Text('Image unavailable: ${image.error}') : image.hasData
                         ? Padding(padding: const EdgeInsets.only(bottom: 8),
                             child: Image.network(image.data!, height: 220, width: double.infinity, fit: BoxFit.cover))
                         : const SizedBox(height: 50, child: Center(child: CircularProgressIndicator())),
                   );
                 }),
                 Wrap(spacing: 8, children: [
+                  TextButton.icon(onPressed: () => _export(context, d), icon: const Icon(Icons.save_alt), label: const Text('Save / Send')),
+                  TextButton.icon(onPressed: () => _regenerate(context, d), icon: const Icon(Icons.refresh), label: const Text('Regenerate')),
                   TextButton.icon(onPressed: () => _edit(context, doc.reference, d),
                       icon: const Icon(Icons.edit_outlined), label: const Text('Edit')),
                   TextButton.icon(onPressed: () => _sharing(context, doc.reference, d),
