@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/services/profile_service.dart';
 import '../dreams/dream_library_screen.dart';
@@ -33,6 +34,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (save == true) await service.updateProfile(displayName: name.text, bio: bio.text);
   }
 
+  Future<void> _choosePhoto({required bool avatar}) async {
+    final choice = await showModalBottomSheet<String>(context: context, builder: (ctx) =>
+      SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Take a new photo'),
+          onTap: () => Navigator.pop(ctx, 'camera')),
+        ListTile(leading: const Icon(Icons.photo_library), title: const Text('Choose from phone gallery'),
+          onTap: () => Navigator.pop(ctx, 'gallery')),
+        if (!avatar) ListTile(leading: const Icon(Icons.account_circle), title: const Text('Use my profile picture'),
+          onTap: () => Navigator.pop(ctx, 'profile')),
+      ])));
+    if (choice == null) return;
+    try {
+      if (choice == 'profile') {
+        await service.useProfilePictureForDreams();
+      } else {
+        final source = choice == 'camera' ? ImageSource.camera : ImageSource.gallery;
+        if (avatar) { await service.uploadProfilePhoto(source: source); }
+        else { await service.addDreamReferencePhoto(source: source); }
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Photo error: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => DreamGradient(child: SafeArea(
     child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -48,7 +73,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               backgroundImage: photo == null ? null : NetworkImage(photo),
               child: photo == null ? const Icon(Icons.person_outline, size: 42) : null),
             Positioned(right: 0, bottom: 0, child: CircleAvatar(radius: 17, backgroundColor: DreamColors.violet,
-              child: IconButton(padding: EdgeInsets.zero, iconSize: 18, onPressed: service.uploadProfilePhoto, icon: const Icon(Icons.camera_alt_outlined)))),
+              child: IconButton(padding: EdgeInsets.zero, iconSize: 18, onPressed: () => _choosePhoto(avatar: true), icon: const Icon(Icons.camera_alt_outlined)))),
           ])),
           const SizedBox(height: 12),
           Center(child: Text(data['displayName'] as String? ?? 'Your Dream Log', style: Theme.of(context).textTheme.headlineMedium)),
@@ -64,7 +89,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 28),
           Row(children: [
             Expanded(child: Text('My Dream Persona', style: Theme.of(context).textTheme.titleLarge)),
-            FilledButton.icon(onPressed: service.addDreamReferencePhoto, icon: const Icon(Icons.add_a_photo_outlined), label: const Text('Add photo')),
+            FilledButton.icon(onPressed: () => _choosePhoto(avatar: false), icon: const Icon(Icons.add_a_photo_outlined), label: const Text('Add photo')),
           ]),
           const SizedBox(height: 8),
           const Text('Choose the photos Dream Logs may use to recreate you. You can turn access off for any photo at any time.',
