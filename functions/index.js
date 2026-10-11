@@ -62,8 +62,15 @@ exports.generateDreamStory = onDocumentCreated({
     const cast = Array.isArray(data.castIds) ? data.castIds : [];
     const photoIds = Array.isArray(data.photoIds) ? data.photoIds.filter(x => typeof x === 'string').slice(0, 10) : [];
     const references = await referencesFor(owner, cast, photoIds);
-    const prompt = "Create a beautiful " + style + " dream scene. Dream: " + description +
-      ". Include the people described in the dream. If reference photos are provided, use them to portray distinct people with recognizable features. No watermark or text.";
+    const prompt = [
+      "Create a single visually striking, high-quality " + style + " cinematic dream image.",
+      "The dream narrative is: " + description,
+      "Treat the narrative as a scene specification. Depict the central action literally even if surreal.",
+      "Prioritize all named people, their actions, and their relationships to the setting.",
+      references.length ? "The supplied photos are identity references. Show these distinct people in the dream scene, preserve their facial features, do not merge faces, and do not omit them." : "Show the human characters described in the dream prominently.",
+      "Strong composition, believable lighting, coherent anatomy, vivid atmosphere, rich visual detail.",
+      "No writing, no logos, no watermarks. Output one finished image, not a collage.",
+    ].join("\\n");
     let response;
     if (references.length) {
       const form = new FormData();
