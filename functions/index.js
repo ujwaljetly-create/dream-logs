@@ -8,7 +8,7 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket();
 const apiKey = defineSecret("OPENAI_API_KEY");
 
-async function referencesFor(owner, castIds) {
+async function referencesFor(owner, castIds, photoIds) {
   const result = [];
   const ids = [...new Set([owner, ...castIds.filter(x => typeof x === "string" && !x.startsWith("persona:"))])].slice(0, 3);
   for (const uid of ids) {
@@ -21,10 +21,13 @@ async function referencesFor(owner, castIds) {
       });
       if (!allowed) continue;
     }
-    const photos = await db.collection("users").doc(uid).collection("dreamPhotos")
-      .where("availableForDreams", "==", true).limit(1).get();
+    const photos = uid === owner && photoIds.length
+      ? await db.collection("users").doc(uid).collection("dreamPhotos").where("availableForDreams", "==", true).get()
+      : await db.collection("users").doc(uid).collection("dreamPhotos").where("availableForDreams", "==", true).limit(1).get();
     if (photos.empty) continue;
-    const path = photos.docs[0].data().storagePath;
+    const chosen = uid === owner && photoIds.length ? photos.docs.find(d => photoIds.includes(d.id)) : photos.docs[0];
+    if (!chosen) continue;
+    const path = chosen.data().storagePath;
     if (typeof path !== "string" || !path.startsWith("users/" + uid + "/dreamPhotos/")) continue;
     const [bytes] = await bucket.file(path).download();
     if (bytes.length <= 10 * 1024 * 1024) result.push(bytes);
@@ -57,7 +60,8 @@ exports.generateDreamStory = onDocumentCreated({
     const description = String(data.description || "").slice(0, 1500);
     const style = String(data.style || "Cinematic").slice(0, 40);
     const cast = Array.isArray(data.castIds) ? data.castIds : [];
-    const references = await referencesFor(owner, cast);
+    const photoIds = Array.isArray(data.photoIds) ? data.photoIds.filter(x => typeof x === 'string').slice(0, 10) : [];
+    const references = await referencesFor(owner, cast, photoIds);
     const prompt = "Create a beautiful " + style + " dream scene. Dream: " + description +
       ". Include the people described in the dream. If reference photos are provided, use them to portray distinct people with recognizable features. No watermark or text.";
     let response;
