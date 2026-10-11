@@ -5,6 +5,7 @@ import '../discover/discover_screen.dart';
 import '../create/create_dream_screen.dart';
 import '../cast/dream_cast_screen.dart';
 import '../profile/profile_screen.dart';
+import '../dreams/dream_library_screen.dart';
 
 class DreamShell extends StatefulWidget {
   const DreamShell({super.key});
@@ -20,6 +21,7 @@ class _DreamShellState extends State<DreamShell> {
     CreateDreamScreen(),
     DreamCastScreen(),
     ProfileScreen(),
+    DreamLibraryScreen(),
   ];
 
   @override
@@ -38,6 +40,7 @@ class _DreamShellState extends State<DreamShell> {
           NavigationDestination(icon: Icon(Icons.auto_awesome), label: 'Dream'),
           NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Cast'),
           NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
+          NavigationDestination(icon: Icon(Icons.collections_bookmark_outlined), selectedIcon: Icon(Icons.collections_bookmark), label: 'My Dreams'),
         ],
       ),
     );
